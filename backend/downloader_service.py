@@ -15,8 +15,9 @@ class AudioDownloader:
     #Inicia a classe, define a pasta e garante que ela exista.
     def __init__(self, download_folder: str ='downloads'):
         self.download_folder = os.path.abspath(download_folder)
-        os.makedirs(self.download_foder, exist_ok=True)
+        os.makedirs(self.download_folder, exist_ok=True)
 
+        self.ffmpeg_timeout = 300
     #Limpa o título do vídeo para garantir que o nome do arquivo seja aceito
     #pelo sistema operacional, removendo caracteres especiais.
     def _sanitize_title(self, title:str) -> str:
@@ -30,7 +31,7 @@ class AudioDownloader:
     #em um MP3 real de 192kbps
     def _convert_to_mp3(self, input_path: str, output_path: str) -> None:
         command = [
-            'ffmpeg', '-y', input_path, 
+            'ffmpeg', '-y', '-i', input_path, 
             '-vn', '-ar', '44100', '-ac', '2', '-b:a', '192k',
             output_path
         ]

@@ -16,7 +16,7 @@ CORS(app)
 
 downloader = AudioDownloader(download_folder='downloads')
 
-@app.route('/api/convert', methods = ['POST'])
+@app.route('/convert', methods = ['POST'])
 def convert_video():
     data = request.json
     video_url = data.get('url')
@@ -30,13 +30,14 @@ def convert_video():
         result = downloader.process_url(video_url)
         file_path = result['path']
 
+        abs_file_path = os.path.abspath(file_path)
         #Inicia a lógica de Auto-Limpeza
         #Evita que o servidor não acumule arquivos
         @after_this_request
         def cleanup(response):
             try:
-                if os.path.exists(file_path):
-                    os.remove(file_path)
+                if os.path.exists(abs_file_path):
+                    os.remove(abs_file_path)
                     logger.info(f"Arquivo temporário removido do servidor: {file_path}")
             except Exception as e:
                 logger.error(f"Falha ao deletar arquivo pós-processamento: {e}")
@@ -44,7 +45,7 @@ def convert_video():
 
         #Retorna o arquivo MP3 para o navegador
         return send_file(
-            file_path, 
+            abs_file_path, 
             as_attachment=True, 
             download_name=result['display_name'], 
             mimetype='audio/mpeg')
@@ -52,7 +53,7 @@ def convert_video():
     except Exception as e:
         #Registra o erro detalhado no log do servidor
         logger.error(f"Erro ao processar requisição: {str(e)}")
-        return jsonify({'error': 'Falha interna ao converter áudio. Verifique o link.'}),
+        return jsonify({'error': 'Falha interna ao converter áudio. Verifique o link.'}), 500
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=False)
