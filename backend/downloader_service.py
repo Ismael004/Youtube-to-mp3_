@@ -2,63 +2,70 @@
 import os
 import uuid
 import subprocess
+import logging
+from typing import Dict, Optional
 from pytubefix import YouTube
 
+#Configuração de logs: registra o horário, o nível do erro e a mensagem
+logging.basicConfig(level=logging.INFO, format='%(asctime)s -%(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
+
 class AudioDownloader:
-    def __init__(self, download_folder='downloads'):
-        self.download_folder = download_folder
-        if not os.path.exists(self.download_folder):
-            os.makedirs(self.download_folder)
+    def __init__(self, download_folder: str ='downloads'):
+        self.download_folder = os.path.abspath(download_folder)
+        os.makedirs(self.download_foder, exist_ok=True)
 
-    def process_url(self, url: str) -> dict:
+    def _sanitize_title(self, title:str) -> str:
+        return "".join([c for c in title if c.isalnum() or c in (' ', '-', '_')]).strip()
+
+    def _get_youtube_instance(self, url:str) -> YouTube:
+        return YouTube(url, use_oauth=True, allow_oauth_cache=True)
+    
+    def _convert_to_mp3(self, input_path: str, output_path: str) -> None:
+        command = [
+            'ffmpeg', '-y', input_path, 
+            '-vn', '-ar', '44100', '-ac', '2', '-b:a', '192k',
+            output_path
+        ]
+
         try:
-            # 1. Cria objeto YouTube com a biblioteca pytubefix
-            # 'on_progress_callback' é opcional, tiramos para simplificar
-            yt = YouTube(url, use_oauth=True, allow_oauth_cache=True)
-            
-            title = yt.title.replace('/', '-').replace('\\', '-') # Limpa nome
-            file_id = str(uuid.uuid4())
-            
-            # 2. Pega apenas o áudio (geralmente vem em .m4a ou .webm)
-            audio_stream = yt.streams.get_audio_only()
-            
-            if not audio_stream:
-                raise Exception("Não foi possível encontrar stream de áudio.")
+            subprocess.run(command, check= True, capture_output=True, timeout=self.ffmpeg_timeout)
+        except subprocess.TimeoutExpired:
+            logger.error(f"Timeout na conversão: {input_path}")
+            raise Exception("A conversão demorou demais.")
+        except subprocess.CalledProcessError as e:
+            logger.error(f"Erro no FFmpef: {e.stderr.decode()}")
+            raise Exception("Erro técnico na conversão do áudio.")
+        
+    def process_url(self, url: str) -> Dict[str, str]:
+        temp_path: Optional[str] = None
+        file_id = str(uuid.uuid4())
 
-            # 3. Baixa o arquivo temporário
-            # O pytubefix baixa com o nome original. Vamos renomear depois.
-            temp_filename = f"{file_id}_temp"
-            downloaded_file_path = audio_stream.download(
-                output_path=self.download_folder, 
-                filename=temp_filename
+        try:
+            yt = self._get_youtube_instance(url)
+            clean_title = self._sanitize_title(yt.title)
+
+            audio_stream = yt.streams.get_audio_only()
+            if not audio_stream:
+                raise ValueError("Áudio não disponível para este vídeo.")
+            
+            temp_path = audio_stream.download(
+                output_path=self.download_folder, filename=f"{file_id}_base"
             )
 
-            # 4. Converte para MP3 usando FFmpeg (Comando de sistema)
-            # Isso é mais robusto que bibliotecas python puras
             mp3_path = os.path.join(self.download_folder, f"{file_id}.mp3")
-            
-            command = [
-                'ffmpeg', 
-                '-i', downloaded_file_path,  # Entrada (m4a/webm)
-                '-vn',                       # Ignorar vídeo (video null)
-                '-ab', '192k',               # Qualidade 192kbps
-                '-ar', '44100',              # Frequência
-                '-y',                        # Sobrescrever se existir
-                mp3_path                     # Saída
-            ]
-            
-            # Executa a conversão silenciosamente
-            subprocess.run(command, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            self._convert_to_mp3(temp_path, mp3_path)
 
-            # 5. Remove o arquivo original (temp) para economizar espaço
-            if os.path.exists(downloaded_file_path):
-                os.remove(downloaded_file_path)
+            logger.info(f"Sucesso: {clean_title} ({file_id})")
 
-            return {
+            return{
                 "path": mp3_path,
-                "title": f"{title}.mp3"
+                "display_name": f"{clean_title}.mp3",
+                "id": file_id
             }
-
         except Exception as e:
-            print(f"Erro no pytubefix: {str(e)}")
-            raise Exception(f"Erro ao processar: {str(e)}")
+            logger.error(f"Falha ao processar URL {url}: {str(e)}")
+            raise e
+        finally:
+            if temp_path and os.path.exists(temp_path):
+                os.remove(temp_path)
