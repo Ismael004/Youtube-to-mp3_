@@ -1,4 +1,3 @@
-# backend/downloader_service.py
 import os
 import uuid
 import subprocess
@@ -9,44 +8,38 @@ from pytubefix import YouTube
 from mutagen.mp3 import MP3
 from mutagen.id3 import ID3, APIC, TIT2, TPE1, error
 
-#Configuração de logs: registra o horário, o nível do erro e a mensagem
-logging.basicConfig(level=logging.INFO, format='%(asctime)s -%(levelname)s - %(message)s')
+# Configuração de logs
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-#classe responsável por gerenciar o download do vídeo e em converter em MP3.
 class AudioDownloader:
-    #Inicia a classe, define a pasta e garante que ela exista.
-    def __init__(self, download_folder: str ='downloads'):
+    def __init__(self, download_folder: str = 'downloads'):
         self.download_folder = os.path.abspath(download_folder)
         os.makedirs(self.download_folder, exist_ok=True)
         self.ffmpeg_timeout = 300
 
-    #Limpa o título do vídeo para garantir que o nome do arquivo seja aceito
-    #pelo sistema operacional, removendo caracteres especiais.
-    def _sanitize_title(self, title:str) -> str:
+    def _sanitize_title(self, title: str) -> str:
+        # Mantém espaços, letras, números, hífens e underlines. Remove emojis/símbolos perigosos.
         return "".join([c for c in title if c.isalnum() or c in (' ', '-', '_')]).strip()
 
-    #Cria a conexão com o Youtube via Pytubefix
-    def _get_youtube_instance(self, url:str) -> YouTube:
+    def _get_youtube_instance(self, url: str) -> YouTube:
         return YouTube(url, use_oauth=True, allow_oauth_cache=True)
     
-    #Executa o FFmpegem um processo separado para converter o áudio base
-    #em um MP3 real de 192kbps
     def _convert_to_mp3(self, input_path: str, output_path: str, quality: str) -> None:
         command = [
             'ffmpeg', '-y', '-i', input_path, 
             '-vn', '-ar', '44100', '-ac', '2', 
-            '-b:a', quality,
+            '-b:a', quality, # Aplica a qualidade escolhida (128k, 192k, 320k)
             output_path
         ]
 
         try:
-            subprocess.run(command, check= True, capture_output=True, timeout=self.ffmpeg_timeout)
+            subprocess.run(command, check=True, capture_output=True, timeout=self.ffmpeg_timeout)
         except subprocess.TimeoutExpired:
             logger.error(f"Timeout na conversão: {input_path}")
             raise Exception("A conversão demorou demais.")
         except subprocess.CalledProcessError as e:
-            logger.error(f"Erro no FFmpef: {e.stderr.decode()}")
+            logger.error(f"Erro no FFmpeg: {e.stderr.decode()}")
             raise Exception("Erro técnico na conversão do áudio.")
         
     def _inject_metadata(self, mp3_path: str, title: str, author: str, thumb_url: str) -> None:
@@ -57,11 +50,14 @@ class AudioDownloader:
             except error:
                 pass
 
+            # Título e Artista
             audio.tags.add(TIT2(encoding=3, text=title))
             audio.tags.add(TPE1(encoding=3, text=author))
 
+            # Capa do Álbum
             if thumb_url:
-                img_data = requests.get(thumb_url).content
+                # Adicionei timeout para não travar se a internet oscilar
+                img_data = requests.get(thumb_url, timeout=10).content
                 audio.tags.add(APIC(
                     encoding=3,
                     mime='image/jpeg',
@@ -81,6 +77,8 @@ class AudioDownloader:
 
         try:
             yt = self._get_youtube_instance(url)
+            
+            # Aqui garantimos que o nome do arquivo seja limpo para o SO, mas legível
             clean_title = self._sanitize_title(yt.title)
             author = yt.author
 
@@ -88,20 +86,22 @@ class AudioDownloader:
             if not audio_stream:
                 raise ValueError("Áudio não disponível para este vídeo.")
             
+            # Download do arquivo bruto temporário
             temp_path = audio_stream.download(
                 output_path=self.download_folder, filename=f"{file_id}_base"
             )
 
             mp3_path = os.path.join(self.download_folder, f"{file_id}.mp3")
+            
+            # Conversão e Metadados
             self._convert_to_mp3(temp_path, mp3_path, quality)
-
             self._inject_metadata(mp3_path, yt.title, author, yt.thumbnail_url)
 
             logger.info(f"Sucesso: {clean_title} [{quality}] ({file_id})")
 
-            return{
+            return {
                 "path": mp3_path,
-                "display_name": f"{clean_title}.mp3",
+                "display_name": f"{clean_title}.mp3", 
                 "id": file_id
             }
         except Exception as e:

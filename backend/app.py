@@ -3,7 +3,7 @@ import uuid
 import time
 import logging
 
-from flask import Flask, after_this_request, request, send_file, jsonify
+from flask import Flask, after_this_request, request, send_file, jsonify, make_response
 from flask_cors import CORS
 from downloader_service import AudioDownloader
 
@@ -12,7 +12,7 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s -%(levelname)s - %(m
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
-CORS(app)
+CORS(app, expose_headers=["X-Filename"])
 
 downloader = AudioDownloader(download_folder='downloads')
 
@@ -31,6 +31,7 @@ def convert_video():
     try:
         result = downloader.process_url(video_url, quality)
         file_path = result['path']
+        display_name = result['display_name']
 
         abs_file_path = os.path.abspath(file_path)
         #Inicia a lógica de Auto-Limpeza
@@ -46,11 +47,14 @@ def convert_video():
             return response
 
         #Retorna o arquivo MP3 para o navegador
-        return send_file(
+        response = make_response(send_file(
             abs_file_path, 
             as_attachment=True, 
-            download_name=result['display_name'], 
-            mimetype='audio/mpeg')
+            download_name=display_name, 
+            mimetype='audio/mpeg'))
+
+        response.headers['X-Filename'] = display_name
+        return response
 
     except Exception as e:
         #Registra o erro detalhado no log do servidor

@@ -1,120 +1,196 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { Download, Loader2, Music2, AlertCircle, CheckCircle2 } from 'lucide-react';
+import { useState } from 'react';
+import { Download, Loader2, Music2, Youtube, Settings2 } from 'lucide-react';
 
 export default function Home() {
   const [url, setUrl] = useState('');
+  const [quality, setQuality] = useState('192k');
   const [status, setStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
   const [message, setMessage] = useState('');
-  const [mounted, setMounted] = useState(false);
+  const [progress, setProgress] = useState(0);
 
-  useEffect(() => setMounted(true), []);
-  if (!mounted) return null;
+  // Extrai ID do vídeo para o Preview
+  const getYouTubeID = (url: string) => {
+    const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=)([^#\&\?]*).*/;
+    const match = url.match(regExp);
+    return (match && match[2].length === 11) ? match[2] : null;
+  };
 
-  async function converterVideo() {
-    if (!url) {
-      setStatus('error');
-      setMessage('Por favor, cole um link do YouTube!');
-      return;
-    }
+  const videoId = getYouTubeID(url);
+
+  const startSimulatedProgress = () => {
+    setProgress(0);
+    const interval = setInterval(() => {
+      setProgress((prev) => {
+        if (prev >= 92) {
+          clearInterval(interval);
+          return prev;
+        }
+        return prev + (prev < 60 ? 3 : 0.5); // Avança rápido no download, lento na conversão
+      });
+    }, 200);
+    return interval;
+  };
+
+  const handleConvert = async () => {
+    if (!url) return;
 
     setStatus('loading');
-    setMessage('Processando áudio...');
+    setMessage('Conectando ao YouTube...');
+    const progressInterval = startSimulatedProgress();
 
     try {
-      const response = await fetch('/api/convert', {
+      const response = await fetch('/api/convert', { 
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url: url })
+        body: JSON.stringify({ url, quality }),
       });
 
-      if (!response.ok) throw new Error('Erro ao processar no servidor');
+      if (!response.ok) throw new Error('Falha na conversão');
 
-      const header = response.headers.get('Content-Disposition');
-      let filename = 'musica_somtube.mp3';
-      if (header && header.includes('filename=')) {
-        filename = header.split('filename=')[1].replace(/['"]/g, '');
-      }
+      setMessage('Finalizando metadados e baixando...');
 
-      setStatus('loading');
-      setMessage('Baixando para seu dispositivo...');
+      //Ler o nome do arquivo do cabeçalho 
+      const filename = response.headers.get('X-Filename') || 'SomTube_Audio.mp3';
 
       const blob = await response.blob();
-      const linkDownload = window.URL.createObjectURL(blob);
+      
+      clearInterval(progressInterval);
+      setProgress(100);
+
+      const downloadUrl = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
-      a.href = linkDownload;
-      a.download = filename;
+      a.href = downloadUrl;
+      a.download = filename; 
       document.body.appendChild(a);
       a.click();
       a.remove();
-      window.URL.revokeObjectURL(linkDownload);
 
       setStatus('success');
-      setMessage('Download concluído!');
-      setUrl('');
-      
-      setTimeout(() => {
-        setStatus('idle');
-        setMessage('');
-      }, 3000);
-
-    } catch (erro) {
-      console.error(erro);
+      setMessage('Música baixada com sucesso!');
+    } catch (err) {
+      clearInterval(progressInterval);
       setStatus('error');
-      setMessage('Falha na conversão. Verifique o link.');
+      setMessage('Erro ao converter. Verifique o link.');
+    } finally {
+      setTimeout(() => {
+        if (status !== 'loading') {
+          setStatus('idle');
+          setProgress(0);
+        }
+      }, 5000);
     }
-  }
+  };
 
   return (
-    <main className="min-h-screen bg-[#0a0a0a] text-zinc-100 flex flex-col items-center justify-center p-4 selection:bg-red-500/30 font-sans relative overflow-hidden">
-      <div className="absolute top-[-20%] left-[-10%] w-[500px] h-[500px] bg-red-600/20 blur-[120px] rounded-full pointer-events-none" />
-      <div className="absolute bottom-[-20%] right-[-10%] w-[500px] h-[500px] bg-blue-600/10 blur-[120px] rounded-full pointer-events-none" />
+    <div className="min-h-screen bg-[#050505] text-white font-sans p-4 flex flex-col items-center justify-center relative overflow-hidden selection:bg-red-500/30">
+      
+      {/* Background Effects */}
+      <div className="absolute top-[-10%] left-[-10%] w-[600px] h-[600px] bg-red-600/20 blur-[120px] pointer-events-none rounded-full" />
+      <div className="absolute bottom-[-10%] right-[-10%] w-[600px] h-[600px] bg-blue-600/15 blur-[120px] pointer-events-none rounded-full" />
 
-      <div className="z-10 w-full max-w-xl space-y-8 text-center backdrop-blur-3xl p-8 rounded-3xl border border-white/5 shadow-2xl">
-        <div className="space-y-4">
-          <div className="mx-auto w-16 h-16 bg-gradient-to-tr from-red-600 to-red-500 rounded-2xl flex items-center justify-center shadow-lg shadow-red-900/20 transform rotate-3 hover:rotate-6 transition-all duration-300">
-            <Music2 className="w-8 h-8 text-white" />
+      <div className="w-full max-w-xl z-10 space-y-8">
+        
+        {/* Header */}
+        <div className="flex flex-col items-center text-center space-y-4">
+          <div className="bg-red-600 p-4 rounded-2xl shadow-[0_0_40px_rgba(220,38,38,0.5)] transform hover:scale-105 transition-transform duration-300">
+            <Music2 className="text-white w-8 h-8" strokeWidth={2.5} />
           </div>
-          <h1 className="text-5xl font-black tracking-tight bg-clip-text text-transparent bg-gradient-to-b from-white to-zinc-400">
-            Som<span className="text-red-500">Tube</span>
-          </h1>
-          <p className="text-zinc-500 text-lg">Cole o link. Baixe o MP3. Sem complicação.</p>
+          <div>
+            <h1 className="text-5xl font-black tracking-tighter">
+              <span className="text-white">Som</span>
+              <span className="text-red-500">Tube</span>
+            </h1>
+            <p className="text-zinc-500 font-medium mt-2">
+              Cole o link. Baixe o MP3. Sem complicação.
+            </p>
+          </div>
         </div>
 
-        <div className="group relative">
-          <div className="absolute -inset-0.5 bg-gradient-to-r from-red-500 to-blue-600 rounded-2xl blur opacity-30 group-focus-within:opacity-100 transition duration-500"></div>
-          <div className="relative flex items-center bg-zinc-900 rounded-xl p-2 border border-zinc-800">
+        {/* Card Principal */}
+        <div className="bg-[#0A0A0A]/80 border border-white/5 backdrop-blur-2xl p-6 rounded-3xl shadow-2xl space-y-5 relative overflow-hidden">
+          <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full h-[1px] bg-gradient-to-r from-transparent via-red-500/50 to-transparent" />
+
+          {/* Input Area */}
+          <div className="relative group">
+            <div className="absolute inset-y-0 left-4 flex items-center text-zinc-500 group-focus-within:text-red-500 transition-colors">
+              <Youtube size={20} />
+            </div>
             <input 
-              type="text" 
-              placeholder="https://www.youtube.com/watch?..." 
-              value={url} 
+              type="text"
+              placeholder="https://www.youtube.com/watch?..."
+              value={url}
               onChange={(e) => setUrl(e.target.value)}
-              className="flex-1 bg-transparent px-4 py-3 outline-none text-zinc-200 placeholder:text-zinc-600 w-full"
+              className="w-full bg-[#121212] border border-zinc-800 rounded-xl py-4 pl-12 pr-32 text-sm outline-none focus:border-red-500/50 focus:ring-1 focus:ring-red-500/50 transition-all placeholder:text-zinc-600"
             />
+            
+            <div className="absolute inset-y-2 right-2">
+              <select 
+                value={quality}
+                onChange={(e) => setQuality(e.target.value)}
+                className="h-full bg-zinc-900 text-xs font-medium text-zinc-300 rounded-lg px-3 border border-zinc-700 hover:border-zinc-500 focus:border-red-500 outline-none cursor-pointer transition-colors"
+              >
+                <option value="128k">128k</option>
+                <option value="192k">192k</option>
+                <option value="320k">320k</option>
+              </select>
+            </div>
           </div>
+
+          {/* Video Preview Section */}
+          {videoId && (
+            <div className="animate-in fade-in zoom-in-95 duration-500">
+              <div className="aspect-video w-full rounded-xl overflow-hidden border border-zinc-800 shadow-lg bg-black">
+                <iframe 
+                  width="100%" height="100%"
+                  src={`https://www.youtube.com/embed/${videoId}`}
+                  title="YouTube video player"
+                  frameBorder="0"
+                  referrerPolicy="strict-origin-when-cross-origin"
+                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                  allowFullScreen
+                />
+              </div>
+            </div>
+          )}
+
+          {/* Botão de Ação */}
+          <button 
+            onClick={handleConvert}
+            disabled={status === 'loading' || !url}
+            className={`w-full py-4 rounded-xl font-bold text-base flex items-center justify-center gap-2 transition-all active:scale-[0.98]
+              ${status === 'loading' 
+                ? 'bg-zinc-800 text-zinc-500 cursor-not-allowed' 
+                : 'bg-white text-black hover:bg-gray-200 shadow-[0_0_20px_rgba(255,255,255,0.05)]'
+              }`}
+          >
+            {status === 'loading' ? <Loader2 className="animate-spin w-5 h-5" /> : <Download className="w-5 h-5" />}
+            {status === 'loading' ? 'Processando...' : 'Converter Agora'}
+          </button>
+
+          {/* Barra de Progresso */}
+          {status === 'loading' && (
+            <div className="space-y-2 animate-in fade-in slide-in-from-top-2 pt-2">
+              <div className="flex justify-between text-[10px] font-bold uppercase tracking-wider text-zinc-500">
+                <span>{message}</span>
+                <span className="text-red-500">{Math.round(progress)}%</span>
+              </div>
+              <div className="h-1 w-full bg-zinc-800 rounded-full overflow-hidden">
+                <div 
+                  className="h-full bg-red-600 transition-all duration-300 ease-out shadow-[0_0_10px_rgba(220,38,38,0.8)]"
+                  style={{ width: `${progress}%` }}
+                />
+              </div>
+            </div>
+          )}
         </div>
 
-        <button 
-          onClick={converterVideo}
-          disabled={status === 'loading'}
-          className={`w-full py-4 rounded-xl font-bold text-lg flex items-center justify-center gap-3 transition-all duration-300 transform active:scale-95 ${status === 'loading' ? 'bg-zinc-800 text-zinc-400 cursor-not-allowed' : 'bg-white text-black hover:bg-zinc-200 shadow-[0_0_20px_rgba(255,255,255,0.1)]'}`}
-        >
-          {status === 'loading' ? <><Loader2 className="w-6 h-6 animate-spin" />{message}</> : <><Download className="w-6 h-6" />Converter Agora</>}
-        </button>
-
-        {status === 'error' && (
-          <div className="flex items-center justify-center gap-2 text-red-400 bg-red-400/10 p-3 rounded-lg animate-in fade-in slide-in-from-top-2">
-            <AlertCircle className="w-5 h-5" /><span>{message}</span>
-          </div>
-        )}
-        {status === 'success' && (
-          <div className="flex items-center justify-center gap-2 text-green-400 bg-green-400/10 p-3 rounded-lg animate-in fade-in slide-in-from-top-2">
-            <CheckCircle2 className="w-5 h-5" /><span>{message}</span>
-          </div>
-        )}
+        {/* Rodapé Info */}
+        <p className="text-center text-zinc-600 text-xs font-medium">
+          © 2026 SomTube. Downloads seguros e rápidos.
+        </p>
       </div>
-      <p className="mt-8 text-zinc-600 text-sm">&copy; 2026 SomTube. Downloads seguros e rápidos.</p>
-    </main>
+    </div>
   );
 }
