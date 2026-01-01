@@ -21,13 +21,15 @@ def convert_video():
     data = request.json
     video_url = data.get('url')
 
+    quality = data.get('quality', '192k')
+
     if not video_url:
         logger.warning("Tentativa de conversão sem URL")
         return jsonify({'error': 'URL é obrigatória'}), 400
     
     #Chama o serviço para realizar download e a conversão
     try:
-        result = downloader.process_url(video_url)
+        result = downloader.process_url(video_url, quality)
         file_path = result['path']
 
         abs_file_path = os.path.abspath(file_path)
